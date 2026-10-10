@@ -14,7 +14,7 @@ npm start            # http://localhost:3000
 npm test             # 33 tests: rules, every scenario, roles, resets, webhook, embed token
 ```
 
-Node 20+. Data goes to `DATA_DIR` (default `./data/orderpilot.db`) and is seeded automatically on first boot.
+Node 22 (required by better-sqlite3). Data goes to `DATA_DIR` (default `./data/orderpilot.db`) and is seeded automatically on first boot.
 
 ## Demo walkthrough (Definition of Done)
 

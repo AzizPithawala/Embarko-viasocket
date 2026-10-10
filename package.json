@@ -5,7 +5,7 @@
   "description": "OrderPilot — Order Operations Hub for e-commerce agencies (demo-first, viaSocket-ready)",
   "main": "server.js",
   "engines": {
-    "node": ">=20"
+    "node": "22.x"
   },
   "scripts": {
     "start": "node server.js",

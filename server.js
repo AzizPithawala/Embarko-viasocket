@@ -20,7 +20,7 @@ function createApp() {
 }
 
 if (require.main === module) {
-  createApp().listen(config.port, () => {
+  createApp().listen(config.port, '0.0.0.0', () => {
     console.log(`OrderPilot listening on :${config.port} (viaSocket mode: ${config.viasocket.mode})`);
   });
 }
