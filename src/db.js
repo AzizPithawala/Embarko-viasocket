@@ -10,7 +10,10 @@ const seed = require('./seed');
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS stores (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, slack_channel TEXT NOT NULL
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, slack_channel TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'demo',   -- demo (seeded, resettable) | live (real client store)
+  shopify_domain TEXT, airtable_base TEXT, airtable_table TEXT,
+  created_at TEXT, created_by TEXT
 );
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL
@@ -61,12 +64,27 @@ CREATE TABLE IF NOT EXISTS approvals (
 );
 CREATE TABLE IF NOT EXISTS history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  event_ref TEXT, at TEXT NOT NULL, actor TEXT NOT NULL, kind TEXT NOT NULL, message TEXT NOT NULL
+  event_ref TEXT, at TEXT NOT NULL, actor TEXT NOT NULL, kind TEXT NOT NULL, message TEXT NOT NULL,
+  store_id TEXT                       -- set on store-level entries (permissions, store setup)
 );
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 `;
 
 let db = null;
+
+// Columns added after the first release. CREATE TABLE IF NOT EXISTS leaves
+// older databases untouched, so add whatever is missing.
+const ADDED_COLUMNS = {
+  stores: ["kind TEXT NOT NULL DEFAULT 'demo'", 'shopify_domain TEXT', 'airtable_base TEXT', 'airtable_table TEXT', 'created_at TEXT', 'created_by TEXT'],
+  history: ['store_id TEXT'],
+};
+
+function migrate(d) {
+  for (const [table, cols] of Object.entries(ADDED_COLUMNS)) {
+    const have = new Set(d.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+    for (const col of cols) if (!have.has(col.split(' ')[0])) d.exec(`ALTER TABLE ${table} ADD COLUMN ${col}`);
+  }
+}
 
 function open() {
   if (db) return db;
@@ -76,6 +94,7 @@ function open() {
   db = new Database(file);
   db.pragma('journal_mode = WAL');
   db.exec(SCHEMA);
+  migrate(db);
   const seeded = db.prepare("SELECT value FROM meta WHERE key = 'seeded'").get();
   if (!seeded) resetAll();
   return db;
@@ -103,16 +122,26 @@ function insertRows(d, rows) {
 }
 
 // Full workspace reset: restore every synthetic store/order/issue to baseline.
+// Live client stores, their orders, permissions and history are never touched.
 function resetAll() {
   const d = db || open();
   d.transaction(() => {
-    for (const t of ['stores', 'users', 'permissions', 'orders', 'events', 'operations', 'attempts', 'approvals', 'history']) {
-      d.prepare(`DELETE FROM ${t}`).run();
+    const demo = "SELECT id FROM stores WHERE kind = 'demo'";
+    const demoEvents = `SELECT id FROM events WHERE store_id IN (${demo})`;
+    d.prepare(`DELETE FROM attempts WHERE operation_id IN (SELECT id FROM operations WHERE event_ref IN (${demoEvents}))`).run();
+    d.prepare(`DELETE FROM operations WHERE event_ref IN (${demoEvents})`).run();
+    d.prepare(`DELETE FROM approvals WHERE event_ref IN (${demoEvents})`).run();
+    d.prepare(`DELETE FROM history WHERE event_ref IN (${demoEvents}) OR store_id IN (${demo}) OR (event_ref IS NULL AND store_id IS NULL)`).run();
+    d.prepare(`DELETE FROM events WHERE store_id IN (${demo})`).run();
+    d.prepare(`DELETE FROM orders WHERE store_id IN (${demo})`).run();
+    d.prepare(`DELETE FROM permissions WHERE store_id IN (${demo})`).run();
+    d.prepare("DELETE FROM stores WHERE kind = 'demo'").run();
+    if (!d.prepare('SELECT 1 FROM stores LIMIT 1').get()) {
+      d.prepare("DELETE FROM sqlite_sequence WHERE name IN ('permissions','attempts','history')").run();
     }
-    d.prepare("DELETE FROM sqlite_sequence WHERE name IN ('permissions','attempts','history')").run();
-    const insStore = d.prepare('INSERT INTO stores (id, name, slack_channel) VALUES (@id, @name, @slack_channel)');
+    const insStore = d.prepare("INSERT INTO stores (id, name, slack_channel, kind) VALUES (@id, @name, @slack_channel, 'demo')");
     seed.STORES.forEach((s) => insStore.run(s));
-    const insUser = d.prepare('INSERT INTO users (id, name, role) VALUES (@id, @name, @role)');
+    const insUser = d.prepare('INSERT OR REPLACE INTO users (id, name, role) VALUES (@id, @name, @role)');
     seed.USERS.forEach((u) => insUser.run(u));
     const insPerm = d.prepare(`INSERT INTO permissions (user_id, store_id, granted_by, granted_at) VALUES (?, ?, 'u_ada', ?)`);
     seed.PERMISSIONS.forEach((p) => insPerm.run(p.user_id, p.store_id, new Date(seed.T0 - 86_400_000).toISOString()));

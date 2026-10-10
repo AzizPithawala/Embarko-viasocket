@@ -64,6 +64,9 @@ There is one source of truth. Issues, statuses, priorities, dashboard totals and
 
 viaSocket is the execution layer and OrderPilot is the visibility and recovery layer. The connection between them has three parts.
 
+### 0. Client stores
+The three seeded stores are **demo** stores: they hold synthetic data and *Reset workspace* rebuilds them. An admin adds a real client in **Integrations → Add client store** (`POST /api/stores` with name, Slack channel, and optionally the Shopify domain and Airtable base/table). These stores are **live**: a demo reset never touches them, their orders, permissions or history, and the creating admin gets execution permission on them straight away. The Issues dashboard has a Live / Demo / All filter, which opens on Live once a live store exists.
+
 ### 1. Embedded Integrations page (per-store isolation)
 The **Integrations** tab shows a *Manage integrations* button for each client store. The server signs a viaSocket Embed token, an HS256 JWT with exactly `{ org_id, project_id, unique_identifier: "store_<storeId>" }` and no `exp`, signed with `VIASOCKET_EMBED_SECRET`. The page then mounts viaSocket's prebuilt UI with `viaSocket.mount()`. Because `unique_identifier` is the **store**, every client store gets its own isolated Shopify, Airtable and Slack connections and flows inside viaSocket. Tokens are only issued to operators and admins who have permission for that store. The embed works whenever the three credentials are set, regardless of `VIASOCKET_MODE`. Locally, put them in `.env`; the app loads it on start. The secret never reaches the browser.
 
@@ -73,7 +76,13 @@ Set up these flow templates once in your viaSocket Embed project:
 - **Order created** → Airtable *upsert* keyed by Shopify Order ID → HTTP step to OrderPilot
 - **Order cancelled** → Airtable *update* (status = Cancelled) + Slack message → HTTP step to OrderPilot
 
-The final HTTP step POSTs to `https://<your-app>/api/webhooks/viasocket`. It sends the header `X-OrderPilot-Signature: <hex HMAC-SHA256 of the raw body using VIASOCKET_WEBHOOK_SECRET>` and this body:
+The final HTTP step POSTs to the store's own report URL, `https://<your-app>/api/webhooks/viasocket/stores/<storeId>`, shown on each store's card in the Integrations tab. The store then comes from the URL, so `store_id` can be left out of the body; if it is present it must match. The generic `/api/webhooks/viasocket` still works with `store_id` in the body.
+
+Authenticate with either header:
+- `X-OrderPilot-Signature: <hex HMAC-SHA256 of the raw body using VIASOCKET_WEBHOOK_SECRET>`, when a code step can compute it; or
+- `Authorization: Bearer <VIASOCKET_WEBHOOK_SECRET>`, for a plain HTTP step. Only use this over HTTPS.
+
+The body:
 
 ```json
 {
@@ -114,8 +123,8 @@ Synthetic demo events always use the simulated adapter, even in live mode, so de
 3. Set the env vars and secrets listed in [`.env.example`](.env.example). Keep `VIASOCKET_MODE=simulated` until the viaSocket values exist.
 4. When going live:
    1. Set `PUBLIC_URL` and the `VIASOCKET_*` values, then set `VIASOCKET_MODE=live`.
-   2. Point each flow's final HTTP step at `${PUBLIC_URL}/api/webhooks/viasocket`.
-   3. Send one signed test delivery and confirm it appears on the dashboard.
+   2. Add each real client in **Integrations → Add client store**, then point that store's flows at its report URL, `${PUBLIC_URL}/api/webhooks/viasocket/stores/<storeId>`.
+   3. Send one authenticated test delivery and confirm it appears on the dashboard under **Live stores**.
 
 ## Known production limitations
 

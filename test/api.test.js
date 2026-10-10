@@ -19,7 +19,18 @@ test.before(async () => {
   base = `http://127.0.0.1:${server.address().port}/api`;
 });
 test.after(() => server.close());
-test.beforeEach(() => db.resetAll());
+// Demo reset never touches live stores, so tests that add one purge it here.
+function purgeLiveStores() {
+  const d = db.get();
+  const live = "SELECT id FROM stores WHERE kind = 'live'";
+  const liveEvents = `SELECT id FROM events WHERE store_id IN (${live})`;
+  d.prepare(`DELETE FROM attempts WHERE operation_id IN (SELECT id FROM operations WHERE event_ref IN (${liveEvents}))`).run();
+  for (const t of ['operations', 'approvals']) d.prepare(`DELETE FROM ${t} WHERE event_ref IN (${liveEvents})`).run();
+  d.prepare(`DELETE FROM history WHERE store_id IN (${live}) OR event_ref IN (${liveEvents})`).run();
+  for (const t of ['events', 'orders', 'permissions']) d.prepare(`DELETE FROM ${t} WHERE store_id IN (${live})`).run();
+  d.prepare("DELETE FROM stores WHERE kind = 'live'").run();
+}
+test.beforeEach(() => { purgeLiveStores(); db.resetAll(); });
 
 async function call(path, { method = 'GET', body, actor = 'u_omar', headers = {} } = {}) {
   const res = await fetch(base + path, {
@@ -263,4 +274,79 @@ test('webhook: rejects bad signature; ingests, dedups and flags missing IDs', as
 test('embed token requires live configuration', async () => {
   const r = await call('/integrations/s_northstar/embed-token');
   assert.equal(r.status, 503);
+});
+
+// ---------- Phase 1.3: live stores, bearer webhook auth, per-store report URL, live/demo filter ----------
+
+const LIVE_STORE = { name: 'Acme Apparel', slack_channel: '#acme-orders', shopify_domain: 'acme-test.myshopify.com', airtable_base: 'appABCDEFGHIJKLMN', airtable_table: 'Orders' };
+const bearer = { authorization: 'Bearer test-secret' };
+
+test('stores: only admins add live stores; input is validated; creator can execute', async () => {
+  assert.equal((await call('/stores', { method: 'POST', body: LIVE_STORE })).status, 403); // operator
+  assert.equal((await call('/stores', { method: 'POST', actor: 'u_ada', body: { ...LIVE_STORE, slack_channel: 'acme' } })).status, 400);
+  assert.equal((await call('/stores', { method: 'POST', actor: 'u_ada', body: { ...LIVE_STORE, shopify_domain: 'acme.com' } })).status, 400);
+  assert.equal((await call('/stores', { method: 'POST', actor: 'u_ada', body: { ...LIVE_STORE, airtable_base: 'base1' } })).status, 400);
+  const r = await call('/stores', { method: 'POST', actor: 'u_ada', body: LIVE_STORE });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.store.id, 's_acme_apparel');
+  assert.equal(r.body.store.kind, 'live');
+  assert.equal((await call('/stores', { method: 'POST', actor: 'u_ada', body: LIVE_STORE })).status, 409); // same Shopify domain
+  const team = (await call('/team')).body.users;
+  assert.ok(team.find((u) => u.id === 'u_ada').stores.includes('s_acme_apparel'));
+  assert.ok(!team.find((u) => u.id === 'u_omar').stores.includes('s_acme_apparel'));
+  assert.equal((await call('/meta')).body.has_live_stores, true);
+});
+
+test('demo reset keeps live stores, their orders, permissions and history', async () => {
+  await call('/stores', { method: 'POST', actor: 'u_ada', body: LIVE_STORE });
+  const ing = await call('/webhooks/viasocket/stores/s_acme_apparel', { method: 'POST', headers: bearer, body: {
+    event_id: 'evt_live_keep', shopify_order_id: '7000000001', event_type: 'created',
+    operations: [{ destination: 'airtable', result: 'failed', detail: 'Unknown field "Total"' }],
+  } });
+  assert.equal(ing.body.classification, 'new');
+  assert.equal((await call('/reset/all', { method: 'POST', body: { confirm: 'RESET' } })).status, 200);
+  const meta = (await call('/meta')).body;
+  assert.ok(meta.stores.some((s) => s.id === 's_acme_apparel' && s.kind === 'live'));
+  assert.ok(meta.users.find((u) => u.id === 'u_ada').stores.includes('s_acme_apparel'));
+  assert.equal((await issue(ing.body.event_ref)).status, 'Failed');
+  const acts = (await call('/activity')).body.activity;
+  assert.ok(acts.some((a) => a.message.includes('added live client store Acme Apparel')));
+});
+
+test('webhook: bearer token is accepted as an alternative to the HMAC signature', async () => {
+  const body = { store_id: 's_studio', event_id: 'evt_bearer_1', shopify_order_id: '5899990077', event_type: 'created',
+    operations: [{ destination: 'airtable', result: 'success' }] };
+  assert.equal((await call('/webhooks/viasocket', { method: 'POST', body })).status, 401);
+  assert.equal((await call('/webhooks/viasocket', { method: 'POST', body, headers: { authorization: 'Bearer wrong' } })).status, 401);
+  assert.equal((await call('/webhooks/viasocket', { method: 'POST', body, headers: { authorization: 'test-secret' } })).status, 401);
+  const ok = await call('/webhooks/viasocket', { method: 'POST', body, headers: bearer });
+  assert.equal(ok.body.classification, 'new');
+});
+
+test('webhook: per-store URL fixes the store; a conflicting store_id is rejected', async () => {
+  const body = { event_id: 'evt_path_1', shopify_order_id: '5899990088', event_type: 'created', operations: [{ destination: 'airtable', result: 'success' }] };
+  const ok = await call('/webhooks/viasocket/stores/s_studio', { method: 'POST', body, headers: bearer });
+  assert.equal(ok.body.classification, 'new');
+  assert.equal((await issue(ok.body.event_ref)).store.id, 's_studio');
+  const clash = await call('/webhooks/viasocket/stores/s_studio', { method: 'POST', body: { ...body, store_id: 's_harbor' }, headers: bearer });
+  assert.equal(clash.status, 400);
+  assert.equal((await call('/webhooks/viasocket/stores/s_nope', { method: 'POST', body, headers: bearer })).status, 400);
+  assert.equal((await call('/webhooks/viasocket/stores/s_studio', { method: 'POST', body })).status, 401);
+});
+
+test('dashboard filter: live and demo stores are separated', async () => {
+  await call('/stores', { method: 'POST', actor: 'u_ada', body: LIVE_STORE });
+  const ing = await call('/webhooks/viasocket/stores/s_acme_apparel', { method: 'POST', headers: bearer, body: {
+    event_id: 'evt_live_f', shopify_order_id: '7000000002', event_type: 'created',
+    operations: [{ destination: 'airtable', result: 'failed', detail: 'rate limited' }],
+  } });
+  const live = (await call('/issues?kind=live')).body;
+  assert.deepEqual(live.issues.map((i) => i.id), [ing.body.event_ref]);
+  assert.equal(live.issues[0].store.kind, 'live');
+  const demo = (await call('/issues?kind=demo')).body;
+  assert.ok(demo.issues.length > 0 && demo.issues.every((i) => i.store.kind === 'demo'));
+  const all = (await call('/issues')).body;
+  assert.equal(all.counts.open, live.counts.open + demo.counts.open);
+  const integ = (await call('/integrations')).body;
+  assert.match(integ.stores.find((s) => s.id === 's_acme_apparel').report_url, /\/api\/webhooks\/viasocket\/stores\/s_acme_apparel$/);
 });

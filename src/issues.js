@@ -41,7 +41,7 @@ function summarize(ctx, event) {
   return {
     id: event.id,
     event,
-    store: { id: store.id, name: store.name },
+    store: { id: store.id, name: store.name, kind: store.kind },
     order,
     workflow: WORKFLOWS[event.type] ? WORKFLOWS[event.type].label : event.type,
     status,
@@ -60,10 +60,12 @@ function compareIssues(a, b) {
   return (b.last_activity || '').localeCompare(a.last_activity || '');
 }
 
-function listIssues({ store, status } = {}) {
+// kind: 'live' | 'demo' narrows to that kind of client store; anything else is all.
+function listIssues({ store, status, kind } = {}) {
   const ctx = loadContext();
   let events = ctx.d.prepare('SELECT * FROM events').all();
   if (store) events = events.filter((e) => e.store_id === store);
+  if (kind === 'live' || kind === 'demo') events = events.filter((e) => ctx.stores.get(e.store_id)?.kind === kind);
   const all = events.map((e) => summarize(ctx, e));
   const open = all.filter((i) => i.open);
 
