@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OrderPilot</title>
+  <meta name="description" content="OrderPilot — Order Operations Hub for e-commerce agencies">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">◆</span>
+      <div>
+        <div class="brand-name">OrderPilot</div>
+        <div class="brand-sub">Order Operations Hub</div>
+      </div>
+      <span class="badge badge-sim" id="mode-badge" title="All stores, orders and destination results are synthetic">Simulation · synthetic data</span>
+    </div>
+    <div class="topbar-actions">
+      <label class="actor">Acting as
+        <select id="actor-select" aria-label="Simulated user"></select>
+      </label>
+      <button class="btn btn-ghost" id="tour-btn">Guided tour</button>
+      <button class="btn btn-ghost btn-danger-text" id="reset-all-btn">Reset workspace</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-view="issues" role="tab">Issues</button>
+    <button class="tab" data-view="activity" role="tab">Activity</button>
+    <button class="tab" data-view="integrations" role="tab">Integrations</button>
+    <button class="tab" data-view="team" role="tab">Team</button>
+  </nav>
+
+  <main>
+    <section id="view-issues" class="view">
+      <div class="tiles" id="tiles"></div>
+      <div class="filters">
+        <label>Client store <select id="filter-store"><option value="">All accessible stores</option></select></label>
+        <label>Sync status
+          <select id="filter-status">
+            <option value="">All open</option>
+            <option>Failed</option><option>Unresolved</option><option>Retrying</option>
+          </select>
+        </label>
+        <span class="muted" id="list-meta"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="issues">
+          <thead><tr><th>Priority</th><th>Client store</th><th>Order</th><th>Workflow</th><th>Shopify order</th><th>Sync status</th><th>Last activity</th></tr></thead>
+          <tbody id="issue-rows"></tbody>
+        </table>
+      </div>
+      <p class="empty hidden" id="issues-empty">No open issues for this filter. Resolved issues are in Activity.</p>
+    </section>
+
+    <section id="view-activity" class="view hidden">
+      <h2>Resolved issues</h2>
+      <div class="table-wrap"><table class="issues"><thead><tr><th>Client store</th><th>Order</th><th>Workflow</th><th>Shopify order</th><th>Sync status</th><th>Last activity</th></tr></thead><tbody id="resolved-rows"></tbody></table></div>
+      <p class="empty hidden" id="resolved-empty">Nothing resolved yet in this demo session.</p>
+      <h2>Activity history</h2>
+      <ol class="timeline" id="activity-list"></ol>
+    </section>
+
+    <section id="view-integrations" class="view hidden">
+      <div id="integrations"></div>
+    </section>
+
+    <section id="view-team" class="view hidden">
+      <div id="team"></div>
+    </section>
+  </main>
+
+  <aside class="panel hidden" id="panel" aria-label="Issue investigation">
+    <div class="panel-inner" id="panel-body"></div>
+  </aside>
+  <div class="scrim hidden" id="scrim"></div>
+
+  <div class="modal hidden" id="modal" role="dialog" aria-modal="true">
+    <div class="modal-card" id="modal-card"></div>
+  </div>
+
+  <div class="tour hidden" id="tour" role="dialog" aria-label="Guided tour"></div>
+  <div class="toast hidden" id="toast" role="status"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
