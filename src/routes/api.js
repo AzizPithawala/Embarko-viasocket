@@ -100,13 +100,13 @@ router.get('/integrations', (req, res) => {
 
 router.get('/integrations/:storeId/embed-token', (req, res) => {
   const vs = config.viasocket;
-  if (vs.mode !== 'live' || !vs.embedConfigured) {
-    return res.status(503).json({ error: 'viaSocket Embed is not configured. Set VIASOCKET_MODE=live, VIASOCKET_ORG_ID, VIASOCKET_PROJECT_ID and VIASOCKET_ACCESS_KEY.' });
+  if (!vs.embedConfigured) {
+    return res.status(503).json({ error: 'viaSocket Embed is not configured. Set VIASOCKET_ORG_ID, VIASOCKET_PROJECT_ID and VIASOCKET_EMBED_SECRET.' });
   }
   if (req.actor.role === 'investigator') return res.status(403).json({ error: 'Investigators cannot manage integrations' });
   const exec = canExecute(req.actor, req.params.storeId);
   if (!exec.ok) return res.status(403).json({ error: exec.reason });
-  res.json({ token: embedTokenForStore(req.params.storeId), user_id: storeUserId(req.params.storeId), script_url: vs.embedScriptUrl });
+  res.json({ token: embedTokenForStore(req.params.storeId), unique_identifier: storeUserId(req.params.storeId), script_url: vs.embedScriptUrl });
 });
 
 // Inbound reports from viaSocket flows

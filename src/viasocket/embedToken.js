@@ -1,12 +1,13 @@
 'use strict';
 
-// viaSocket Embed token: an HS256 JWT signed server-side with the embed access
-// key from viaSocket (Embed → Settings). The key never reaches the browser.
+// viaSocket Embed token: an HS256 JWT signed server-side with
+// VIASOCKET_EMBED_SECRET. The secret never reaches the browser.
 //
-// user_id is the client store, so each store gets its own isolated set of
-// Shopify / Airtable / Slack connections and flows inside viaSocket.
-// Claim names follow viaSocket Embed docs (org_id, project_id, user_id); confirm
-// against your viaSocket dashboard before going live.
+// The payload is exactly { org_id, project_id, unique_identifier } with no exp
+// (https://flow.viasocket.com/documentation/embed.md, section 2).
+// unique_identifier is the client store, so each store gets its own isolated set
+// of Shopify / Airtable / Slack connections and flows inside viaSocket. It must
+// never change for a store, or that store appears to lose everything.
 
 const crypto = require('node:crypto');
 const { config } = require('../config');
@@ -27,8 +28,7 @@ function storeUserId(storeId) {
 function embedTokenForStore(storeId) {
   const vs = config.viasocket;
   if (!vs.embedConfigured) return null;
-  const iat = Math.floor(Date.now() / 1000);
-  return signJwt({ org_id: vs.orgId, project_id: vs.projectId, user_id: storeUserId(storeId), iat }, vs.accessKey);
+  return signJwt({ org_id: vs.orgId, project_id: vs.projectId, unique_identifier: storeUserId(storeId) }, vs.accessKey);
 }
 
 // Webhook authenticity: HMAC-SHA256 of the raw body with VIASOCKET_WEBHOOK_SECRET.

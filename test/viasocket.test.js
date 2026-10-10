@@ -22,7 +22,7 @@ test.before(async () => {
   await new Promise((r) => stub.listen(0, r));
   Object.assign(process.env, {
     DB_FILE: ':memory:', SIM_DELAY_MS: '0', VIASOCKET_MODE: 'live',
-    VIASOCKET_ORG_ID: 'org_test', VIASOCKET_PROJECT_ID: 'proj_test', VIASOCKET_ACCESS_KEY: 'access_test',
+    VIASOCKET_ORG_ID: 'org_test', VIASOCKET_PROJECT_ID: 'proj_test', VIASOCKET_EMBED_SECRET: 'access_test',
     VIASOCKET_WEBHOOK_SECRET: 'whsec', VIASOCKET_RETRY_SLACK_URL: `http://127.0.0.1:${stub.address().port}/slack`,
   });
   const { createApp } = require('../server');
@@ -48,7 +48,8 @@ test('embed token is an HS256 JWT scoped to the store', async () => {
   const claims = JSON.parse(Buffer.from(p, 'base64url').toString());
   assert.equal(claims.org_id, 'org_test');
   assert.equal(claims.project_id, 'proj_test');
-  assert.equal(claims.user_id, 'store_s_northstar');
+  assert.equal(claims.unique_identifier, 'store_s_northstar');
+  assert.deepEqual(Object.keys(claims).sort(), ['org_id', 'project_id', 'unique_identifier']); // no exp, per viaSocket
   const expected = crypto.createHmac('sha256', 'access_test').update(`${h}.${p}`).digest('base64url');
   assert.equal(s, expected);
   assert.equal((await call('/integrations/s_harbor/embed-token')).status, 403); // no permission
