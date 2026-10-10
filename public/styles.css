@@ -159,7 +159,7 @@ table.issues tbody tr:last-child td { border-bottom: 0; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
 .flow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; margin: 8px 0; }
 .flow span.node { border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; background: var(--surface-2); }
-.embed-host { min-height: 120px; border: 1px dashed var(--border); border-radius: 8px; margin-top: 10px; padding: 10px; }
+.embed-host { height: 640px; border: 1px dashed var(--border); border-radius: 8px; margin-top: 10px; overflow: hidden; }
 .perm-grid td, .perm-grid th { text-align: center; }
 .perm-grid td:first-child, .perm-grid th:first-child { text-align: left; }
 

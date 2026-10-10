@@ -65,7 +65,7 @@ There is one source of truth. Issues, statuses, priorities, dashboard totals and
 viaSocket is the execution layer and OrderPilot is the visibility and recovery layer. The connection between them has three parts.
 
 ### 1. Embedded Integrations page (per-store isolation)
-The **Integrations** tab shows a *Manage integrations* button for each client store. The server signs a viaSocket Embed token, an HS256 JWT `{ org_id, project_id, user_id: "store_<storeId>" }` signed with `VIASOCKET_ACCESS_KEY`. The page then loads the viaSocket Embed script with that token. Because `user_id` is the **store**, every client store gets its own isolated Shopify, Airtable and Slack connections and flows inside viaSocket. Tokens are only issued to operators and admins who have permission for that store. The access key never reaches the browser.
+The **Integrations** tab shows a *Manage integrations* button for each client store. The server signs a viaSocket Embed token, an HS256 JWT with exactly `{ org_id, project_id, unique_identifier: "store_<storeId>" }` and no `exp`, signed with `VIASOCKET_EMBED_SECRET`. The page then mounts viaSocket's prebuilt UI with `viaSocket.mount()`. Because `unique_identifier` is the **store**, every client store gets its own isolated Shopify, Airtable and Slack connections and flows inside viaSocket. Tokens are only issued to operators and admins who have permission for that store. The embed works whenever the three credentials are set, regardless of `VIASOCKET_MODE`. Locally, put them in `.env`; the app loads it on start. The secret never reaches the browser.
 
 ### 2. Flows report results to OrderPilot
 Set up these flow templates once in your viaSocket Embed project:

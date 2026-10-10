@@ -406,13 +406,14 @@ async function loadTeam() {
 async function loadIntegrations() {
   const { data } = await api('/integrations');
   const live = data.mode === 'live' && data.embed_configured;
+  const canEmbed = data.embed_configured;
   $('#integrations').innerHTML = `
     <div class="card">
       <strong>viaSocket powers the live workflow; OrderPilot gives the agency visibility and safe recovery.</strong>
       <div class="flow"><span class="node">Shopify order created / cancelled</span>→<span class="node">viaSocket flow (per client store)</span>→<span class="node">Airtable upsert by Shopify Order ID</span>+<span class="node">Slack cancellation notice</span>→<span class="node">Report to OrderPilot</span></div>
       <div class="kv" style="margin-top:10px">
         <div>Mode</div><div>${live ? '<span class="badge badge-live">Live</span>' : '<span class="badge badge-sim">Simulated</span>'} ${esc(data.mode)}</div>
-        <div>Embed configured</div><div>${data.embed_configured ? 'Yes' : 'No — set VIASOCKET_ORG_ID, VIASOCKET_PROJECT_ID, VIASOCKET_ACCESS_KEY'}</div>
+        <div>Embed configured</div><div>${data.embed_configured ? 'Yes' : 'No — set VIASOCKET_ORG_ID, VIASOCKET_PROJECT_ID, VIASOCKET_EMBED_SECRET'}</div>
         <div>Report webhook</div><div><code>${esc(data.webhook_url)}</code> ${data.webhook_signed ? '(HMAC signed)' : '<span class="muted">(unsigned — set VIASOCKET_WEBHOOK_SECRET)</span>'}</div>
         <div>Retry flows</div><div>Airtable: ${data.retry_flows.airtable ? 'configured' : 'not set'} · Slack: ${data.retry_flows.slack ? 'configured' : 'not set'}</div>
       </div>
@@ -420,29 +421,44 @@ async function loadIntegrations() {
     </div>
     ${data.stores.map((s) => `<div class="card">
       <div class="op-head"><div><strong>${esc(s.name)}</strong><div class="op-meta">viaSocket user: <code>${esc(s.viasocket_user_id)}</code> — connections and flows are isolated per store</div></div>
-      <button class="btn btn-sm" data-embed="${esc(s.id)}" ${live ? '' : 'disabled'}>Manage integrations</button></div>
+      <button class="btn btn-sm" data-embed="${esc(s.id)}" ${canEmbed ? '' : 'disabled'}>Manage integrations</button></div>
       <div class="embed-host hidden" id="embed-${esc(s.id)}"></div>
     </div>`).join('')}`;
   document.querySelectorAll('[data-embed]').forEach((b) => b.onclick = () => mountEmbed(b.dataset.embed));
 }
 
-// Loads the viaSocket Embed script for one store with a server-minted token.
+// Mounts viaSocket's prebuilt UI for one store with a server-minted token
+// (https://flow.viasocket.com/documentation/embed.md, section 3).
+let embed = null;
+
+function loadEmbedScript(src) {
+  if (window.viaSocket?.mount) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
 async function mountEmbed(storeId) {
   const r = await api(`/integrations/${encodeURIComponent(storeId)}/embed-token`);
   if (!r.ok) return toast(r.data.error);
   const host = document.getElementById(`embed-${storeId}`);
+  embed?.destroy();
+  embed = null;
   document.querySelectorAll('.embed-host').forEach((h) => { h.classList.add('hidden'); h.innerHTML = ''; });
-  document.getElementById('viasocket-embed-main-script')?.remove();
   host.classList.remove('hidden');
-  host.innerHTML = '<div class="muted">Loading viaSocket…</div>';
-  const s = document.createElement('script');
-  s.id = 'viasocket-embed-main-script';
-  s.src = r.data.script_url;
-  s.setAttribute('embedToken', r.data.token);
-  s.setAttribute('parentId', host.id);
-  s.onload = () => { host.querySelector('.muted')?.remove(); if (typeof window.openViasocket === 'function') window.openViasocket(); };
-  s.onerror = () => { host.innerHTML = '<div class="notice bad">Could not load the viaSocket Embed script. Check VIASOCKET_EMBED_SCRIPT_URL.</div>'; };
-  document.body.appendChild(s);
+  try {
+    await loadEmbedScript(r.data.script_url);
+  } catch {
+    host.innerHTML = '<div class="notice bad">Could not load the viaSocket Embed script. Check VIASOCKET_EMBED_SCRIPT_URL.</div>';
+    return;
+  }
+  embed = window.viaSocket.mount({ embedToken: r.data.token, parent: host, config: { pageheading: 'Automation' } });
+  // TODO(1.3g): persist published flows per store; for now surface the event only.
+  embed.on('flow', (flow) => { if (flow?.action === 'published') toast(`Flow published: ${flow.title || flow.id}`); });
 }
 
 // ---------- guided tour (optional, skippable) ----------
