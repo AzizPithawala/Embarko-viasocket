@@ -40,4 +40,14 @@ function verifySignature(rawBody, signature, secret) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-module.exports = { signJwt, embedTokenForStore, storeUserId, verifySignature };
+// Alternative for viaSocket HTTP steps that cannot compute an HMAC:
+// Authorization: Bearer <VIASOCKET_WEBHOOK_SECRET>. Only safe over HTTPS.
+function verifyBearer(authorization, secret) {
+  const m = /^Bearer\s+(\S+)$/i.exec(String(authorization || ''));
+  if (!secret || !m) return false;
+  const a = crypto.createHash('sha256').update(m[1]).digest();
+  const b = crypto.createHash('sha256').update(secret).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+module.exports = { signJwt, embedTokenForStore, storeUserId, verifySignature, verifyBearer };

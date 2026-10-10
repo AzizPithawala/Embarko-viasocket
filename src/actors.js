@@ -56,9 +56,9 @@ function setPermission(admin, userId, storeId, grant) {
   } else {
     return { status: 200, changed: false };
   }
-  d.prepare(`INSERT INTO history (event_ref, at, actor, kind, message) VALUES (NULL, ?, ?, 'permission', ?)`).run(
+  d.prepare(`INSERT INTO history (event_ref, at, actor, kind, message, store_id) VALUES (NULL, ?, ?, 'permission', ?, ?)`).run(
     now, admin.id,
-    `${admin.name} ${grant ? 'granted' : 'revoked'} execution permission for ${user.name} on ${store.name}`,
+    `${admin.name} ${grant ? 'granted' : 'revoked'} execution permission for ${user.name} on ${store.name}`, store.id,
   );
   return { status: 200, changed: true };
 }

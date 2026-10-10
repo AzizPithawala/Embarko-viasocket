@@ -44,6 +44,13 @@ function toast(msg) {
 const stateLabel = { success: 'Confirmed success', failed: 'Failed', unknown: 'Outcome unknown', retrying: 'Retrying…', pending: 'Pending' };
 const userName = (id) => (state.meta?.users.find((u) => u.id === id)?.name) || id;
 
+function renderStoreFilter() {
+  const current = $('#filter-store').value;
+  $('#filter-store').innerHTML = '<option value="">All accessible stores</option>' +
+    state.meta.stores.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}${s.kind === 'live' ? ' (live)' : ''}</option>`).join('');
+  $('#filter-store').value = state.meta.stores.some((s) => s.id === current) ? current : '';
+}
+
 // ---------- boot ----------
 async function boot() {
   const { data } = await api('/meta');
@@ -51,7 +58,9 @@ async function boot() {
   if (!data.users.some((u) => u.id === state.actor)) state.actor = 'u_omar';
   $('#actor-select').innerHTML = data.users.map((u) => `<option value="${esc(u.id)}">${esc(u.name)} — ${esc(u.role)}</option>`).join('');
   $('#actor-select').value = state.actor;
-  $('#filter-store').innerHTML = '<option value="">All accessible stores</option>' + data.stores.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  renderStoreFilter();
+  // Real stores first: once any live store exists, the dashboard opens on Live.
+  $('#filter-kind').value = store.get('op.kind', data.has_live_stores ? 'live' : '');
   if (data.mode === 'live') {
     $('#mode-badge').textContent = 'viaSocket live · demo data still simulated';
     $('#mode-badge').className = 'badge badge-live';
@@ -72,6 +81,7 @@ function bind() {
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => switchView(t.dataset.view)));
   $('#filter-store').addEventListener('change', refresh);
   $('#filter-status').addEventListener('change', refresh);
+  $('#filter-kind').addEventListener('change', (e) => { store.set('op.kind', e.target.value); refresh(); });
   $('#scrim').addEventListener('click', closePanel);
   $('#reset-all-btn').addEventListener('click', confirmResetAll);
   $('#tour-btn').addEventListener('click', () => startTour(0));
@@ -108,6 +118,7 @@ async function loadIssues() {
   const qs = new URLSearchParams();
   if ($('#filter-store').value) qs.set('store', $('#filter-store').value);
   if ($('#filter-status').value) qs.set('status', $('#filter-status').value);
+  if ($('#filter-kind').value) qs.set('kind', $('#filter-kind').value);
   const { data } = await api(`/issues?${qs}`);
   state.list = data;
   const c = data.counts;
@@ -119,7 +130,7 @@ async function loadIssues() {
   $('#issue-rows').innerHTML = data.issues.map((i) => `
     <tr data-id="${esc(i.id)}" class="${state.openIssue === i.id ? 'selected' : ''}">
       <td><span class="pill p${i.priority.rank}">${esc(i.priority.label)}</span><span class="reason">${esc(i.priority.reason)}</span></td>
-      <td>${esc(i.store.name)}</td>
+      <td>${esc(i.store.name)}${i.store.kind === 'live' ? ' <span class="badge badge-live">Live</span>' : ''}</td>
       <td><strong>${esc(i.order_number)}</strong><span class="reason">${esc(i.shopify_order_id)}</span></td>
       <td>${esc(i.workflow)}</td>
       <td><span class="pill shop">${esc(i.shopify_status)}</span></td>
@@ -419,12 +430,44 @@ async function loadIntegrations() {
       </div>
       ${live ? '' : '<div class="notice warn">viaSocket is not connected. The demo runs entirely on simulated destinations. See the README for the live setup.</div>'}
     </div>
+    ${isAdmin() ? addStoreForm() : ''}
     ${data.stores.map((s) => `<div class="card">
-      <div class="op-head"><div><strong>${esc(s.name)}</strong><div class="op-meta">viaSocket user: <code>${esc(s.viasocket_user_id)}</code> — connections and flows are isolated per store</div></div>
+      <div class="op-head"><div><strong>${esc(s.name)}</strong> ${s.kind === 'live' ? '<span class="badge badge-live">Live</span>' : '<span class="badge badge-sim">Demo</span>'}
+        <div class="op-meta">viaSocket user: <code>${esc(s.viasocket_user_id)}</code> — connections and flows are isolated per store</div>
+        <div class="op-meta">Report URL for this store's flows: <code>${esc(s.report_url)}</code></div></div>
       <button class="btn btn-sm" data-embed="${esc(s.id)}" ${canEmbed ? '' : 'disabled'}>Manage integrations</button></div>
       <div class="embed-host hidden" id="embed-${esc(s.id)}"></div>
     </div>`).join('')}`;
   document.querySelectorAll('[data-embed]').forEach((b) => b.onclick = () => mountEmbed(b.dataset.embed));
+  $('#add-store')?.addEventListener('submit', submitStore);
+}
+
+const isAdmin = () => state.meta.users.find((u) => u.id === state.actor)?.role === 'admin';
+
+function addStoreForm() {
+  return `<form class="card store-form" id="add-store">
+    <strong>Add client store</strong>
+    <p class="muted">A live store is a real client. It is never touched by a demo reset, and you get execution permission on it straight away.</p>
+    <div class="store-fields">
+      <label>Store name <input name="name" required maxlength="80" placeholder="Acme Apparel"></label>
+      <label>Slack channel <input name="slack_channel" required placeholder="#acme-orders"></label>
+      <label>Shopify domain <input name="shopify_domain" placeholder="acme.myshopify.com"></label>
+      <label>Airtable base ID <input name="airtable_base" placeholder="appXXXXXXXXXXXXXX"></label>
+      <label>Airtable table <input name="airtable_table" placeholder="Orders"></label>
+    </div>
+    <div class="modal-actions"><button class="btn btn-sm" type="submit">Add store</button></div>
+  </form>`;
+}
+
+async function submitStore(e) {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(e.target));
+  const r = await api('/stores', { method: 'POST', body });
+  if (!r.ok) return toast(r.data.error);
+  toast(`Added ${r.data.store.name}`);
+  state.meta = (await api('/meta')).data;
+  renderStoreFilter();
+  await loadIntegrations();
 }
 
 // Mounts viaSocket's prebuilt UI for one store with a server-minted token
